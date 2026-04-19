@@ -1,0 +1,10 @@
+groups:
+- name: lab.rules
+  rules:
+  - alert: HighCPU
+    expr: cpu_usage > 80
+    for: 10s
+    labels:
+      severity: warning
+    annotations:
+      summary: "CPU alta detectada"

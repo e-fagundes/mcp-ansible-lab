@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  metrics:
+    build: ./metrics
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "127.0.0.1:9093:9093"
+
+  agent:
+    build: ./agent
+    ports:
+      - "127.0.0.1:8081:8081"

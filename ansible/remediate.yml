@@ -1,0 +1,10 @@
+- name: Simple remediation
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  tasks:
+    - name: Create test file
+      copy:
+        content: "Remediation executed via MCP"
+        dest: /tmp/remediation.txt

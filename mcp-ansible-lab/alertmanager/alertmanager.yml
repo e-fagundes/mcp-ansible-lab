@@ -1,0 +1,7 @@
+route:
+  receiver: agent
+
+receivers:
+- name: agent
+  webhook_configs:
+  - url: "http://agent:8081/alertmanager"

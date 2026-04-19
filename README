@@ -1,0 +1,22 @@
+# Decision-Driven Automation Lab
+
+## Problem
+Most automation is reactive and disconnected from real observability.
+
+## Solution
+A decision-driven pipeline using:
+- Prometheus (metrics)
+- Python agent (decision layer)
+- Ansible (execution)
+
+## Architecture
+metrics → Prometheus → agent → Ansible
+
+## How to run
+1. start metrics server
+2. start docker
+3. run agent
+
+## Demo
+- CPU normal → no action
+- CPU high → remediation triggered

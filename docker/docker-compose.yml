@@ -1,0 +1,16 @@
+services:
+  ansible:
+    build: .
+    container_name: ansible-lab
+    volumes:
+      - ../ansible:/ansible
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus-lab
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
