@@ -12,7 +12,7 @@ def get_context():
     """
     try:
         response = requests.get(
-            "http://localhost:9090/api/v1/query?query=cpu_usage",
+            "http://prometheus:9090/api/v1/query?query=cpu_usage",
             timeout=2
         )
         data = response.json()
@@ -50,9 +50,6 @@ def remediate():
     try:
         result = subprocess.run(
             [
-                "docker",
-                "exec",
-                "ansible-lab",
                 "ansible-playbook",
                 "/ansible/remediate.yml",
                 "-i",
