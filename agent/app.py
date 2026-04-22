@@ -1,167 +1,73 @@
+# agent/app.py
 import os
-import time
-from dataclasses import dataclass
-from typing import Any, Dict
-
-import ansible_runner
-import requests
-import yaml
+import logging
+import json
 from fastapi import FastAPI, Request
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
-from starlette.responses import Response
+import requests
+import redis
 
-app = FastAPI(title="lab-decision-agent")
+app = FastAPI()
 
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
-RULES_FILE = os.getenv("RULES_FILE", "/app/rules.yml")
-RUNNER_PRIVATE_DATA_DIR = os.getenv("RUNNER_PRIVATE_DATA_DIR", "/app/runner")
-PARALLELISM_FILE = os.getenv("PARALLELISM_FILE", "/shared/parallelism.txt")
-COOLDOWN_DEFAULT = int(os.getenv("ALERT_COOLDOWN_SECONDS", "120"))
+# Configure logging: envia para STDOUT e arquivo
+LOG_FILE = os.environ.get("AGENT_LOG_FILE", "/tmp/decision_agent.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(LOG_FILE)
+    ],
+)
 
-DECISIONS = Counter("lab_decisions_total", "Decisions taken by agent", ["result", "rule"])
-LAST_DECISION_TS = Gauge("lab_last_decision_timestamp", "Unix timestamp of last decision run")
-LAST_CONTEXT_QUEUE = Gauge("lab_last_context_queue_length", "Last queue length seen by agent")
-LAST_CONTEXT_CPU = Gauge("lab_last_context_worker_cpu", "Last worker cpu seen by agent")
+PROM_URL = os.environ.get("PROM_URL", "http://prometheus:9090")
+QUEUE_HOST = os.environ.get("QUEUE_HOST", "queue")  # serviço do Rabbit ou Redis
+QUEUE_PORT = int(os.environ.get("QUEUE_PORT", "6379"))
+QUEUE_CHANNEL = os.environ.get("QUEUE_CHANNEL", "actions")
 
-@dataclass
-class Rule:
-    name: str
-    enabled: bool
-    cooldown_seconds: int
-    queue_length_gt: float
-    worker_cpu_gt: float
-    playbook: str
-    desired_parallelism: int
+# Inicializa redis para enfileirar jobs
+redis_client = redis.Redis(host=QUEUE_HOST, port=QUEUE_PORT, decode_responses=True)
 
-_last_trigger: Dict[str, float] = {}
-
-def load_rule() -> Rule:
-    with open(RULES_FILE, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    r0 = cfg["rules"][0]
-    return Rule(
-        name=str(r0["name"]),
-        enabled=bool(r0.get("enabled", True)),
-        cooldown_seconds=int(r0.get("cooldown_seconds", COOLDOWN_DEFAULT)),
-        queue_length_gt=float(r0["when"]["queue_length_gt"]),
-        worker_cpu_gt=float(r0["when"]["worker_cpu_gt"]),
-        playbook=str(r0["action"]["playbook"]),
-        desired_parallelism=int(r0["action"]["desired_parallelism"]),
-    )
-
-def prom_query(promql: str) -> float:
-    r = requests.get(
-        f"{PROMETHEUS_URL}/api/v1/query",
-        params={"query": promql},
-        timeout=3,
-    )
-    r.raise_for_status()
-    data = r.json()
-    result = data.get("data", {}).get("result", [])
-    if not result:
-        return 0.0
-    return float(result[0]["value"][1])
-
-def read_current_parallelism() -> int:
+def query_prometheus(query: str) -> float | None:
+    """Consulta a métrica e devolve um valor numérico ou None."""
     try:
-        with open(PARALLELISM_FILE, "r", encoding="utf-8") as f:
-            return int(f.read().strip())
-    except Exception:
-        return 1
+        resp = requests.get(f"{PROM_URL}/api/v1/query", params={"query": query}, timeout=5)
+        data = resp.json()
+        result = data.get("data", {}).get("result", [])
+        if result:
+            value = float(result[0]["value"][1])
+            return value
+    except Exception as exc:
+        logging.error(f"Erro consultando Prometheus: {exc}")
+    return None
 
-def in_cooldown(rule_name: str, cooldown_s: int) -> bool:
-    last = _last_trigger.get(rule_name)
-    return last is not None and (time.time() - last) < cooldown_s
-
-def mark_trigger(rule_name: str) -> None:
-    _last_trigger[rule_name] = time.time()
-    LAST_DECISION_TS.set(_last_trigger[rule_name])
-
-def run_playbook(playbook: str, extravars: Dict[str, Any]) -> Dict[str, Any]:
-    r = ansible_runner.run(
-        private_data_dir=RUNNER_PRIVATE_DATA_DIR,
-        playbook=playbook,
-        extravars=extravars,
-    )
-    return {"status": r.status, "rc": r.rc, "stats": r.stats}
-
-@app.get("/health")
-def health() -> dict:
-    return {"status": "ok", "prometheus": PROMETHEUS_URL}
-
-@app.get("/metrics")
-def metrics() -> Response:
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+def enqueue_action(context: dict):
+    """Envia contexto e nome da playbook para a fila. Worker irá executar."""
+    payload = {"playbook": "/ansible/remediate.yml", "context": context}
+    redis_client.rpush(QUEUE_CHANNEL, json.dumps(payload))
+    logging.info("Ação enfileirada com sucesso")
 
 @app.post("/alertmanager")
-async def alertmanager_webhook(req: Request) -> dict:
-    payload = await req.json()
-    status = payload.get("status", "")
-    rule = load_rule()
-    print({
-    "event": "decision",
-    "queue": qlen,
-    "cpu": cpu,
-    "current_parallelism": current_p,
-    "target": rule.desired_parallelism
-    })
+async def alertmanager_webhook(request: Request):
+    """Recebe alerts do Alertmanager e decide se aciona remediação."""
+    data = await request.json()
+    # Apenas exemplo: extrai primeiro alerta, usa label 'severity'
+    alerts = data.get("alerts", [])
+    severity = alerts[0]["labels"].get("severity") if alerts else "unknown"
+    cpu_usage = query_prometheus("cpu_usage")
 
-    if not rule.enabled:
-        DECISIONS.labels(result="disabled", rule=rule.name).inc()
-        return {"ok": True, "action": "disabled"}
+    context = {"cpu_usage": cpu_usage, "severity": severity, "status": "no_action"}
 
-    if status != "firing":
-        DECISIONS.labels(result="ignored", rule=rule.name).inc()
-        return {"ok": True, "status": status, "action": "none"}
+    if cpu_usage is None:
+        context["status"] = "error"
+        logging.warning(f"Não foi possível obter cpu_usage: {context}")
+        return {"decision": {"decision": "no_action", "context": context}}
 
-    if in_cooldown(rule.name, rule.cooldown_seconds):
-        DECISIONS.labels(result="cooldown", rule=rule.name).inc()
-        return {"ok": True, "status": status, "action": "cooldown"}
+    if cpu_usage > 80:
+        # Exemplo de decisão: CPU > 80 dispara playbook
+        context["status"] = "degraded"
+        enqueue_action(context)
+        logging.info(f"Remediação disparada: {context}")
+        return {"decision": {"decision": "remediation_triggered", "context": context}}
 
-    qlen = prom_query("max(lab_queue_length)")
-    cpu = prom_query('max(rate(process_cpu_seconds_total{job="worker"}[1m]))')
-
-    LAST_CONTEXT_QUEUE.set(qlen)
-    LAST_CONTEXT_CPU.set(cpu)
-
-    current_p = read_current_parallelism()
-
-    match = (
-        (qlen > rule.queue_length_gt)
-        and (cpu > rule.worker_cpu_gt)
-        and (current_p < rule.desired_parallelism)
-    )
-
-    if not match:
-        DECISIONS.labels(result="no_match", rule=rule.name).inc()
-        return {
-            "ok": True,
-            "match": False,
-            "context": {
-                "queue_length": qlen,
-                "worker_cpu": cpu,
-                "current_parallelism": current_p,
-            },
-        }
-
-    try:
-        res = run_playbook(rule.playbook, {"desired_parallelism": rule.desired_parallelism})
-        mark_trigger(rule.name)
-        DECISIONS.labels(result="triggered", rule=rule.name).inc()
-        return {
-            "ok": True,
-            "match": True,
-            "context": {
-                "queue_length": qlen,
-                "worker_cpu": cpu,
-                "current_parallelism": current_p,
-            },
-            "action": {
-                "playbook": rule.playbook,
-                "desired_parallelism": rule.desired_parallelism,
-                "result": res,
-            },
-        }
-    except Exception as e:
-        DECISIONS.labels(result="error", rule=rule.name).inc()
-        return {"ok": False, "error": str(e)}
+    logging.info(f"Sem ação necessária: {context}")
+    return {"decision": {"decision": "no_action", "context": context}}
