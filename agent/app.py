@@ -98,6 +98,13 @@ async def alertmanager_webhook(req: Request) -> dict:
     payload = await req.json()
     status = payload.get("status", "")
     rule = load_rule()
+    print({
+    "event": "decision",
+    "queue": qlen,
+    "cpu": cpu,
+    "current_parallelism": current_p,
+    "target": rule.desired_parallelism
+    })
 
     if not rule.enabled:
         DECISIONS.labels(result="disabled", rule=rule.name).inc()

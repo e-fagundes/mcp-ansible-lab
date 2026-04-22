@@ -1,0 +1,39 @@
+{
+  "uid": "lab-mcp-like",
+  "title": "Lab MCP-like + Ansible",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Queue length (max)",
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 },
+      "targets": [
+        { "refId": "A", "expr": "max(lab_queue_length)", "instant": true }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue length",
+      "id": 2,
+      "gridPos": { "x": 8, "y": 0, "w": 16, "h": 9 },
+      "targets": [
+        { "refId": "A", "expr": "lab_queue_length" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker CPU",
+      "id": 3,
+      "gridPos": { "x": 0, "y": 9, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{job=\"worker\"}[1m])"
+        }
+      ]
+    }
+  ]
+}
