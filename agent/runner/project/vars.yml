@@ -1,0 +1,4 @@
+parallelism_file: "/shared/parallelism.txt"
+worker_reload_url: "http://worker:9000/reload"
+worker_health_url: "http://worker:9000/health"
+max_parallelism: 16

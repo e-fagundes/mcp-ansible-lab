@@ -1,27 +1,62 @@
-version: "3.9"
-
 services:
-  metrics:
-    build: ./metrics
+  queue:
+    build: ./queue
+    container_name: lab-queue
     ports:
       - "127.0.0.1:8000:8000"
 
-  prometheus:
-    image: prom/prometheus:latest
+  worker:
+    build: ./worker
+    container_name: lab-worker
+    environment:
+      QUEUE_URL: "http://queue:8000"
+      CONFIG_FILE: "/shared/parallelism.txt"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - ./shared:/shared
+    depends_on:
+      - queue
     ports:
-      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:9000:9000"
+    restart: unless-stopped
 
   alertmanager:
-    image: prom/alertmanager:latest
+    image: prom/alertmanager:v0.31.1
+    container_name: lab-alertmanager
     volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
     ports:
       - "127.0.0.1:9093:9093"
 
+  prometheus:
+    image: prom/prometheus:v3.11.1-distroless
+    container_name: lab-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - queue
+      - worker
+      - alertmanager
+      - agent
+
   agent:
     build: ./agent
+    container_name: lab-agent
+    environment:
+      PROMETHEUS_URL: "http://prometheus:9090"
+      RULES_FILE: "/app/rules.yml"
+      RUNNER_PRIVATE_DATA_DIR: "/app/runner"
+      PARALLELISM_FILE: "/shared/parallelism.txt"
+      ALERT_COOLDOWN_SECONDS: "120"
+    volumes:
+      - ./shared:/shared
     ports:
       - "127.0.0.1:8081:8081"
+    depends_on:
+      - prometheus

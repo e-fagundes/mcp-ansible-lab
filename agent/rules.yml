@@ -1,0 +1,10 @@
+rules:
+  - name: scale_parallelism_on_backlog
+    enabled: true
+    cooldown_seconds: 120
+    when:
+      queue_length_gt: 50
+      worker_cpu_gt: 0.70
+    action:
+      playbook: "scale_parallelism.yml"
+      desired_parallelism: 4

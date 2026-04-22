@@ -1,0 +1,39 @@
+- name: Scale worker parallelism (lab)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yml
+  vars:
+    desired_parallelism: "{{ desired_parallelism | default(2) }}"
+
+  tasks:
+    - name: Validate desired_parallelism bounds
+      ansible.builtin.assert:
+        that:
+          - (desired_parallelism | int) >= 1
+          - (desired_parallelism | int) <= (max_parallelism | int)
+
+    - name: Write parallelism config file
+      ansible.builtin.copy:
+        dest: "{{ parallelism_file }}"
+        content: "{{ desired_parallelism | int }}\n"
+        mode: "0644"
+
+    - name: Trigger worker reload
+      ansible.builtin.uri:
+        url: "{{ worker_reload_url }}"
+        method: POST
+        status_code: [200, 202]
+        timeout: 3
+
+    - name: Wait for worker health to return
+      ansible.builtin.uri:
+        url: "{{ worker_health_url }}"
+        method: GET
+        status_code: 200
+        timeout: 3
+      register: health
+      retries: 20
+      delay: 1
+      until: health.status == 200

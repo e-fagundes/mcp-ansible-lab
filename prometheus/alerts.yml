@@ -1,10 +1,12 @@
 groups:
-- name: lab.rules
-  rules:
-  - alert: HighCPU
-    expr: cpu_usage > 80
-    for: 10s
-    labels:
-      severity: warning
-    annotations:
-      summary: "CPU alta detectada"
+  - name: lab.rules
+    rules:
+      - alert: LabBacklogAndCpuHigh
+        expr: (max(lab_queue_length) > 50) and (max(rate(process_cpu_seconds_total{job="worker"}[1m])) > 0.70)
+        for: 30s
+        labels:
+          severity: warning
+          lab: mcp_like
+        annotations:
+          summary: "Fila alta e CPU alta no worker (lab)"
+          description: "Backlog + CPU sugerem saturação; acionar remediação via agente."
