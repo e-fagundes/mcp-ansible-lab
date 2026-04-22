@@ -29,20 +29,6 @@ services:
     ports:
       - "127.0.0.1:9093:9093"
 
-  grafana:
-    image: grafana/grafana:12.4.2
-    container_name: lab-grafana
-    environment:
-      GF_SECURITY_ADMIN_USER: "admin"
-      GF_SECURITY_ADMIN_PASSWORD: "admin"
-    volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
-    ports:
-      - "127.0.0.1:3000:3000"
-    depends_on:
-      - prometheus
-
   prometheus:
     image: prom/prometheus:v3.11.1-distroless
     container_name: lab-prometheus
@@ -57,7 +43,20 @@ services:
       - queue
       - worker
       - alertmanager
-      - agent
+
+  grafana:
+    image: grafana/grafana:12.4.2
+    container_name: lab-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
 
   agent:
     build: ./agent
@@ -68,9 +67,23 @@ services:
       RUNNER_PRIVATE_DATA_DIR: "/app/runner"
       PARALLELISM_FILE: "/shared/parallelism.txt"
       ALERT_COOLDOWN_SECONDS: "120"
+      AGENT_ADMIN_TOKEN: "lab-secret-token"
     volumes:
       - ./shared:/shared
     ports:
       - "127.0.0.1:8081:8081"
     depends_on:
+      - worker
+
+  mcp-gateway:
+    build: ./mcp_gateway
+    container_name: lab-mcp-gateway
+    environment:
+      PROMETHEUS_URL: "http://prometheus:9090"
+      AGENT_URL: "http://agent:8081"
+      AGENT_ADMIN_TOKEN: "lab-secret-token"
+    ports:
+      - "127.0.0.1:8001:8000"
+    depends_on:
       - prometheus
+      - agent

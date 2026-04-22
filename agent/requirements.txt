@@ -4,3 +4,4 @@ requests
 pyyaml
 prometheus-client
 ansible-runner
+ansible-core
