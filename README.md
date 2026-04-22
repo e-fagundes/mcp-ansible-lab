@@ -206,7 +206,7 @@ Na raiz do repositório:
 
 ```bash
 docker compose up -d --build
-
+```
 
 Para derrubar:
 
