@@ -630,5 +630,4 @@ Para uso real em ambiente corporativo, ainda faria sentido acrescentar:
 * integração com plataforma de automação maior
 
 Mas para o objetivo deste projeto, o ponto central já está demonstrado.
-```
 
