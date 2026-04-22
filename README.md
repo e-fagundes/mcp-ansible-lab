@@ -51,7 +51,8 @@ queue -> worker -> Prometheus -> Alertmanager -> decision-agent -> ansible-runne
 E por cima disso existe uma segunda camada:
 
 ```text
-Inspector / cliente MCP -> MCP gateway -> decision-agent
+Inspector / MCP client -> MCP gateway -> decision-agent
+                                       \-> llm-assistant -> Ollama local
 ```
 
 ## Componentes
@@ -130,6 +131,32 @@ Tools disponíveis:
 * `remediate`
 * `explain_current_state`
 
+### `llm_assistant`
+
+Camada cognitiva local do projeto.
+
+Responsabilidades:
+- coletar contexto do `agent`
+- consultar alertas ativos no Prometheus
+- chamar um modelo local via Ollama
+- gerar explicação e recomendação sem tocar no fluxo automático de remediação
+
+Endpoints:
+- `/health`
+- `/explain`
+- `/recommend`
+
+### `ollama`
+
+Runtime local para o modelo open source usado pelo `llm_assistant`.
+
+Neste projeto, ele entra apenas para:
+- explicação
+- contextualização
+- recomendação
+
+Ele não participa da remediação automática.
+
 ### `grafana`
 
 Camada visual do lab:
@@ -140,6 +167,9 @@ Camada visual do lab:
 
 ---
 
+## Estrutura do projeto
+
+```text
 ## Estrutura do projeto
 
 ```text
@@ -160,6 +190,10 @@ mcp-ansible-lab/
 ├── grafana/
 │   ├── dashboards/
 │   └── provisioning/
+├── llm_assistant/
+│   ├── Dockerfile
+│   ├── app.py
+│   └── requirements.txt
 ├── mcp_gateway/
 │   ├── Dockerfile
 │   ├── app.py
@@ -226,6 +260,8 @@ docker compose down --remove-orphans
 * Queue: `http://127.0.0.1:8000/health`
 * Worker: `http://127.0.0.1:9000/health`
 * Agent: `http://127.0.0.1:8081/health`
+* LLM Assistant: `http://127.0.0.1:8100/health`
+* Ollama API: `http://127.0.0.1:11434/api/tags`
 
 ### MCP
 
@@ -379,8 +415,10 @@ O gateway existe para expor esse mesmo motor de decisão via MCP, sem duplicar a
 
 * `get_status`
 * `get_context`
-* `remediate`
 * `explain_current_state`
+* `explain_with_llm`
+* `recommend_next_action`
+* `remediate`
 
 ### Ideia central
 
@@ -473,6 +511,16 @@ Retornou uma explicação coerente do estado atual, por exemplo:
 * com `dry_run=true`, retornou só a intenção da ação
 * com `dry_run=false`, respeitou a idempotência e respondeu `already_at_or_above_target` quando o sistema já estava em `4`
 
+
+### `explain_with_llm`
+
+Retornou uma explicação mais natural do estado atual, usando o mesmo contexto operacional do projeto, mas com uma camada cognitiva local rodando em cima do Ollama.
+
+### `recommend_next_action`
+
+Retornou uma recomendação conservadora e coerente com o estado observado.  
+Quando o sistema estava sem backlog e sem alertas ativos, a recomendação foi essencialmente “no action recommended”, o que é exatamente o comportamento esperado para esse papel.
+
 Esse comportamento confirma que a camada MCP não é “fake”: ela conversa com o mesmo backend operacional do projeto.
 
 ---
@@ -506,6 +554,8 @@ Esse repositório já demonstra, de forma prática:
 * idempotência
 * cooldown
 * interface MCP em cima do motor operacional
+* LLM local open source para explicação e recomendação
+* separação clara entre motor operacional determinístico e camada cognitiva auxiliar
 
 Em outras palavras: não é só “alerta com script”.
 É um mini padrão de operações automatizadas, desenhado para ser explicado, testado e expandido.
@@ -528,10 +578,15 @@ Em outras palavras: não é só “alerta com script”.
 * melhorar logs estruturados
 * criar uma camada de policy separada
 
-### Opcional
+### Opcional / próximos passos
 
-* adicionar um LLM **como camada de explicação**, não como motor de remediação
+* melhorar os prompts e o grounding da LLM local
+* adicionar `summarize_incident`
+* adicionar `generate_postmortem_summary`
+* expor histórico de decisões para enriquecer explicações futuras
 
+O uso de LLM aqui continua intencionalmente fora do caminho crítico da remediação.  
+Ela explica e recomenda; quem decide e executa continua sendo o motor determinístico do agent.
 Exemplos de próximos passos sensatos:
 
 * `explain_current_state_llm`
