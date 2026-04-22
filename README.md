@@ -182,7 +182,7 @@ mcp-ansible-lab/
 │   ├── app.py
 │   └── requirements.txt
 └── docker-compose.yml
-
+```
 
 ## Requisitos
 
@@ -206,7 +206,7 @@ Na raiz do repositório:
 
 ```bash
 docker compose up -d --build
-```
+
 
 Para derrubar:
 
